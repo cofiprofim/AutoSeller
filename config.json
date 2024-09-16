@@ -1,0 +1,34 @@
+{
+    "Cookie": "",
+
+    "Discord_Bot": {
+        "Enabled": false,
+        "Token": "",
+        "Prefix": "!",
+        "Owner_IDs": []
+    },
+    "Webhook": {
+        "On_Sale": {
+            "Enabled": false,
+            "Url": ""
+        },
+        "On_Buy": {
+            "Enabled": false,
+            "Url": ""
+        },
+        "User_To_Ping": 0
+    },
+    "Under_Cut": {
+        "Type": "robux",
+        "Value": 1
+    },
+    "Auto_Sell": {
+        "Ask_Before_Sell": true,
+        "Hide_OnSale": {
+            "Enabled": false,
+            "Save_Items": false
+        },
+        "Keep_Serials": 0,
+        "Keep_Copy": 0
+    }
+}
