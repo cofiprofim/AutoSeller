@@ -13,7 +13,7 @@
             "Url": ""
         },
         "OnBuy": {
-            "Enabled": true,
+            "Enabled": false,
             "Url": ""
         },
         "User_To_Ping": 0
