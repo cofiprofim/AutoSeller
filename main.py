@@ -357,12 +357,8 @@ class AutoSeller:
                         continue
                     
                     item_id = transaction_details["id"]
-                    try:
-                        index, item = [(index, item) for index, item in enumerate(self.items) if item.id == item_id][0]
-                    except IndexError:
-                        item = None
-                    if item is not None:
-                        print(len(item.collectibles))
+                    item = self.get_item(item_id)
+                    
                     if item is not None and len(item.collectibles) <= 1:
                         transaction_time = time.mktime(datetime.strptime(sale["created"], "%Y-%m-%dT%H:%M:%S.%fZ").timetuple())
                         sold_amount = sale["currency"]["amount"]
@@ -394,7 +390,7 @@ class AutoSeller:
 
                         async with session.post(self.buy_webhook_url, json=embed) as response:
                             if response.status == 200:
-                                self.items.pop(index)
+                                self.remove_item(item_id)
                             
 
     async def update_console(self) -> str:
