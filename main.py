@@ -1,24 +1,25 @@
 import sys
 import os
 
-VERSION = "1.1.2"
+VERSION = "1.2.0"
 
 try:
     import asyncio
     import json
-    # from tqdm import tqdm
     from datetime import datetime
     import traceback
     import aiohttp
     from collections import deque
     from rgbprint import Color
+    from aioconsole import ainput
     import time
     from discord.errors import LoginFailure
 
-    from typing import List
+    from typing import List, Optional, Any, Union
 
-    from core.utils import *
-    from core.visuals import *
+    from core.utils import (Item, Auth, WithBool, ItemTypes, FileSync,
+                            load_file, is_webhook_exists, slice_list, define_status)
+    from core.visuals import Display, Tools, GRAY_COLOR
     from core.detection import *
     from discord_bot import start as discord_bot_start
 
@@ -36,48 +37,62 @@ except ModuleNotFoundError:
     input("Press \"enter\" to exit...")
     sys.exit(1)
 
+__all__ = ("AutoSeller")
+
 
 class AutoSeller:
-    def __init__(self, config: dict, blacklist: List[int], seen: List[int], not_resable: List[int]) -> None:
+    under_cut_types = ("robux", "percent")
+    sort_items_types = ("name", "creator", "price")
+    
+    def __init__(self, config: dict, blacklist: FileSync, seen: FileSync, not_resable: FileSync) -> None:
         self.config = config
 
-        self.blacklist = set(blacklist)
-        self.seen = set(seen)
-        self.not_resable = set(not_resable)
+        self.blacklist = blacklist
+        self.seen = seen
+        self.not_resable = not_resable
 
-        self.discord_bot = config["Discord_Bot"]
-        self.owners_list = self.discord_bot.get("Owner_IDs", [])
-        self.discord_bot_enabled = self.discord_bot.get("Enabled", False)
+        discord_bot = config["Discord_Bot"]
+        self.discord_bot = discord_bot.get("Enabled", False)
+        self.bot_token = discord_bot.get("Token", "")
+        self.bot_prefix = discord_bot.get("Prefix", "")
+        self.owners_list = discord_bot.get("Owner_IDs", [])
+        
 
         webhooks = config["Webhook"]
         self.user_to_ping = f"<@{webhooks['User_To_Ping']}>" if webhooks.get("User_To_Ping", 0) else ""
 
-        buy_webhook = webhooks["OnBuy"]
+        buy_webhook = webhooks.get("OnBuy", dict())
         self.buy_webhook_url = buy_webhook.get("Url", "").strip()
-        self.buy_webhook_enabled = buy_webhook.get("Enabled", False)
+        self.buy_webhook = buy_webhook.get("Enabled", False)
 
         sale_webhook = webhooks["OnSale"]
         self.sale_webhook_url = sale_webhook.get("Url", "").strip()
-        self.sale_webhook_enabled = sale_webhook.get("Enabled", False)
-
-        under_cut = config["Under_Cut"]
-        self.under_cut_type = under_cut.get("Type", "percent")
-        self.under_cut_amount = under_cut.get("Value", 10)
+        self.sale_webhook = sale_webhook.get("Enabled", False)
 
         auto_sell = config["Auto_Sell"]
-        self.auto_sell_enabled = not auto_sell.get("Ask_Before_Sell", False)
+        self.auto_sell = not auto_sell.get("Ask_Before_Sell", False)
+        self.skip_on_sale = auto_sell.get("Hide_OnSale", False)
+        self.skip_if_cheapest = auto_sell.get("Skip_If_Cheapest", False)
+        self.sort_items_by = auto_sell.get("Sort_Items_By", "name")
         self.keep_serials = auto_sell.get("Keep_Serials", 0)
         self.keep_copy = auto_sell.get("Keep_Copy", 0)
-        self.hide_on_sale = auto_sell.get("Hide_OnSale", False)
-        self.save_items = auto_sell.get("Save_Seen_Items", False)
-
-        self.total_sold = 0
+        
+        under_cut = auto_sell["Under_Cut"]
+        self.under_cut_type = under_cut.get("Type", "percent")
+        self.under_cut_amount = under_cut.get("Value", 10)
+        
+        save_progress = auto_sell["Save_Progress"]
+        self.save_progress = save_progress.get("Enabled", False)
+        self.clear_after_done = save_progress.get("Clear_After_Done", False)
 
         self._items = {}
+        self.total_sold = 0
         self.current_index = 0
         self.done = False
+        self.selling = WithBool()
 
         self.auth = Auth(config.get("Cookie", ""))
+        
         self.control_panel = None
     
     @property
@@ -85,49 +100,60 @@ class AutoSeller:
         return list(self._items.values())
 
     async def start(self):
-        if self.buy_webhook_enabled and not await is_webhook_exists(self.buy_webhook_url):
-            return display_exception("Invalid on buy webhook url provided")
+        if self.discord_bot:
+            if not self.bot_token:
+                return Display.exception("Invalid discord bot token provided")
+            
+            elif not self.bot_prefix:
+                return Display.exception("Discord bot prefix can not be empty")
+        
+        elif self.buy_webhook and not await is_webhook_exists(self.buy_webhook_url):
+            return Display.exception("Invalid on buy webhook url provided")
 
-        elif self.sale_webhook_enabled and not await is_webhook_exists(self.sale_webhook_url):
-            return display_exception("Invalid on sale webhook url provided")
+        elif self.sale_webhook and not await is_webhook_exists(self.sale_webhook_url):
+            return Display.exception("Invalid on sale webhook url provided")
 
-        elif self.under_cut_type not in ["robux", "percent"]:
-            return display_exception("Invalid under cut type provided, must be \"robux\" or \"percent\"")
+        elif self.under_cut_type not in self.under_cut_types:
+            return Display.exception(f"Invalid under cut type provided, must be: {self.under_cut_types}")
+        
+        elif self.sort_items_by not in self.sort_items_types:
+            return Display.exception(f"Invalid sort items type provided, must be: {self.sort_items_types}")
 
         elif self.under_cut_amount < 0:
-            return display_exception("Under cut amount can not be less than 0")
+            return Display.exception("Under cut amount can not be less than 0")
 
-        display_info("Checking cookie to be valid")
+
+        Display.info("Checking cookie to be valid")
         await self.auth.update_auth_info()
         if self.auth.user_id is None:
-            return display_exception("Invalid cookie provided")
+            return Display.exception("Invalid cookie provided")
 
-        display_info("Checking premium owning")
+        Display.info("Checking premium owning")
         if not await self.auth.get_premium_owning():
-            return display_exception("You dont have premium to sell limiteds")
+            return Display.exception("You dont have premium to sell limiteds")
 
-        display_info("Getting current limiteds cap")
+        Display.info("Getting current limiteds cap")
         items_cap = await get_current_cap(self.auth)
 
-        display_info("Loading your inventory")
+        Display.info("Loading your inventory")
         tasks = [asyncio.create_task(get_user_inventory(item_type, self.auth)) for item_type in ItemTypes.integers()]
         user_items = sum(await asyncio.gather(*tasks), [])
 
         if not user_items:
-            return display_exception("You dont have any limited UGC items")
+            return Display.exception("You dont have any limited UGC items")
 
         item_ids = [str(asset["assetId"]) for asset in user_items]
 
-        display_info("Loading items thumbnails")
+        Display.info("Loading items thumbnails")
         tasks = [asyncio.create_task(get_assets_thumbnails(chunk, self.auth)) for chunk in slice_list(item_ids, 100)]
         item_thumbnails = sum(await asyncio.gather(*tasks), [])
 
-        display_info(f"Found {len(user_items)} items. Checking them...")
+        Display.info(f"Found {len(user_items)} items. Checking them...")
         tasks = [asyncio.create_task(get_items_details(chunk, self.auth)) for chunk in slice_list(item_ids, 120)]
         items_details = sum(await asyncio.gather(*tasks), [])
 
         ignored_items = list(self.seen | self.blacklist | self.not_resable)
-
+        
         for item, item_details, thumbnail in zip(user_items, items_details, item_thumbnails):
             item_id = item["assetId"]
             item_serial = item["serialNumber"]
@@ -135,14 +161,14 @@ class AutoSeller:
 
             if item_id in ignored_items:
                 continue
-
+            
             item_obj = self.get_item(item_id)
 
             if item_obj is None:
                 asset_cap = items_cap[ItemTypes.types[item_details["assetType"]]]["priceFloor"]
                 sell_price = item_lrp - self.under_cut_amount if self.under_cut_type == "robux" else round(item_lrp - (item_lrp / 100 * self.under_cut_amount)) if item_lrp > asset_cap else asset_cap
 
-                col = Item(
+                new = Item(
                     _id=item["assetId"],
                     name=item["assetName"],
                     thumbnail=thumbnail,
@@ -157,13 +183,13 @@ class AutoSeller:
                     auth=self.auth
                 )
 
-                col.add_collectible(
+                new.add_collectible(
                     serial=item_serial,
                     item_id=item["collectibleItemId"],
                     instance_id=item["collectibleItemInstanceId"]
                 )
 
-                self.add_item(col)
+                self.add_item(new)
             else:
                 item_obj.add_collectible(
                     serial=item_serial,
@@ -172,7 +198,7 @@ class AutoSeller:
                 )
         
         if not self._items:
-            return display_exception(f"You dont have any limiteds that are not in {GRAY_COLOR}items/{Color.white} directory")
+            return Display.exception(f"You dont have any limiteds that are not in {GRAY_COLOR}items/{Color.white} directory")
 
         if self.keep_serials != 0 or self.keep_copy != 0:
             for item in self.items:
@@ -189,7 +215,7 @@ class AutoSeller:
             if self.keep_serials != 0:
                 not_met.append(f"{self.keep_serials} serial or higher")
             
-            return display_exception(f"You dont have any limiteds with {', '.join(not_met)}")
+            return Display.exception(f"You dont have any limiteds with {', '.join(not_met)}")
 
         # if self.discord_bot_enabled:
         #     TasksManager.set_success("https://cdn.discordapp.com/emojis/1244723120292499467.webp?size=40&quality=lossless")
@@ -197,25 +223,23 @@ class AutoSeller:
         #     TasksManager.set_skip("https://cdn.discordapp.com/emojis/1244723114827448381.webp?size=40&quality=lossless")
         
         self._items = dict(sorted(self._items.items(), key=lambda x: x[1].name))
-        
-        clear_console()
 
         try:
-            tasks = [
-                asyncio.create_task(discord_bot_start(self)) if self.discord_bot.get("Enabled", False) else None,
-                asyncio.create_task(self.start_buy_checking()) if self.buy_webhook_enabled else None,
-                asyncio.create_task(self.start_selling())
-            ]
-            await asyncio.gather(*filter(None, tasks))
+            async with self:
+                tasks = [
+                    asyncio.create_task(discord_bot_start(self)) if self.discord_bot else None,
+                    asyncio.create_task(self.start_buy_checking()) if self.buy_webhook else None,
+                    asyncio.create_task(self.start_selling())
+                ]
+                await asyncio.gather(*filter(None, tasks))
+            
         except LoginFailure:
-            return display_exception("Invalid discord token provided")
+            return Display.exception("Invalid discord token provided")
         except Exception:
-            return display_exception(f"Unknown error occurred:\n\n{traceback.format_exc()}")
-        finally:
-            await self.auth.close_session()
+            return Display.exception(f"Unknown error occurred:\n\n{traceback.format_exc()}")
     
-    def get_item(self, _id: int, default: Optional[Any] = None):
-        self._items.get(_id, default)
+    def get_item(self, _id: int, default: Optional[Any] = None) -> Union[Item, Any]:
+        return self._items.get(_id, default)
     
     def add_item(self, item: Item) -> None:
         self._items.update({item.id: item})
@@ -223,12 +247,24 @@ class AutoSeller:
     def remove_item(self, _id: int) -> None:
         self._items.pop(_id)
 
-    def next_item(self):
+    def next_item(self, *,
+                  fetch_sales: Optional[bool] = True,
+                  fetch_resales: Optional[bool] = True,
+                  step_index: Optional[int] = 1):
+        
         if (self.current_index + 1) < len(self.items):
             self.current_index += 1
         else:
             self.current_index = 0
             self.done = True
+        
+        try:
+            if fetch_sales:
+                asyncio.create_task(self.items[self.current_index + step_index].fetch_sales(save_sales=False))
+            if fetch_resales:
+                asyncio.create_task(self.items[self.current_index + step_index].fetch_resales(save_resales=False))
+        except IndexError:
+            pass
 
     @property
     def current_item(self):
@@ -241,12 +277,17 @@ class AutoSeller:
                 self.items[i].fetch_sales(save_sales=False)
             )
 
-        if self.auto_sell_enabled:
+        if self.auto_sell:
+            
             while not self.done:
-                display_selling(f"Selling {GRAY_COLOR}{len(self.current_item.collectibles)}x{Color.white} "
-                                f"of {GRAY_COLOR}{self.current_item.name}{Color.white} items...")
+                await Display.custom(
+                    f"Selling {GRAY_COLOR}{len(self.current_item.collectibles)}x{Color.white} "
+                    f"of {GRAY_COLOR}{self.current_item.name}{Color.white} items...",
+                    "selling",
+                    Color(255, 153, 0)
+                )
 
-                sold_amount = await self.current_item.sell_collectibles(skip_on_sale=self.hide_on_sale)
+                sold_amount = await self.current_item.sell_collectibles(skip_on_sale=self.skip_on_sale)
                 if sold_amount is None:
                     self.not_resable.add(self.current_item.id)
                     with open("items/not_resable.json", "w") as f:
@@ -254,9 +295,9 @@ class AutoSeller:
                 else:
                     self.total_sold += sold_amount
 
-                    if self.sale_webhook_enabled and sold_amount > 0:
+                    if self.sale_webhook and sold_amount > 0:
                         asyncio.create_task(self.send_sale_webhook(self.current_item, sold_amount))
-                    if self.save_items:
+                    if self.save_progress:
                         self.seen.add(self.current_item.id)
                         with open("items/seen.json", "w") as f:
                             f.write(json.dumps(list(self.seen)))
@@ -265,74 +306,75 @@ class AutoSeller:
                 await asyncio.sleep(0.5)
         else:
             while not self.done:
-                choose = await self.update_console()
+                await self.update_console()
+                choose = await ainput()
     
                 if choose == "1":
-                    display_selling(
-                        f"Selling {GRAY_COLOR}{len(self.current_item.collectibles)}x{Color.white} items...")
+                    if self.selling:
+                        Display.error("This item is already being sold")
+                        await asyncio.sleep(0.7)
+                        continue
+                    
+                    with self.selling:
+                        await Display.custom(
+                            f"Selling {GRAY_COLOR}{len(self.current_item.collectibles)}x{Color.white} items...",
+                            "selling", Color(255, 153, 0))
 
-                    sold_amount = await self.current_item.sell_collectibles(skip_on_sale=self.hide_on_sale)
-                    if sold_amount is None:
-                        self.not_resable.add(self.current_item.id)
-                        with open("items/not_resable.json", "w") as f:
-                            f.write(json.dumps(list(self.not_resable)))
-                    else:
-                        self.total_sold += sold_amount
+                        sold_amount = await self.current_item.sell_collectibles(skip_on_sale=self.skip_on_sale, skip_if_cheapest=self.skip_if_cheapest)
+                        if sold_amount is None:
+                            self.not_resable.add(self.current_item.id)
+                        else:
+                            self.total_sold += sold_amount
 
-                        if self.sale_webhook_enabled and sold_amount > 0:
-                            asyncio.create_task(self.send_sale_webhook(self.current_item, sold_amount))
+                            if self.sale_webhook and sold_amount > 0:
+                                asyncio.create_task(self.send_sale_webhook(self.current_item, sold_amount))
 
-                    if self.save_items:
-                        self.seen.add(self.current_item.id)
-                        with open("items/seen.json", "w") as f:
-                            f.write(json.dumps(list(self.seen)))
+                        if self.save_progress:
+                            self.seen.add(self.current_item.id)
 
-                    self.next_item()
-
-                    try:
-                        asyncio.create_task(self.items[self.current_index + 1].fetch_resales(save_resales=False))
-                        asyncio.create_task(self.items[self.current_index + 1].fetch_sales(save_sales=False))
-                    except IndexError:
-                        pass
-
-                    await asyncio.sleep(0.7)
+                        self.next_item()
+                        
+                        if self.control_panel is not None:
+                            asyncio.create_task(self.control_panel.update_service_message(self.control_panel.make_embed()))
+                        
                 elif choose == "2":
-                    new_price = await display_input("Enter a new price to sell this limited: ")
+                    new_price = await Display.input("Enter a new price to sell this limited: ")
                     self.current_item.price_to_sell = int(new_price)
 
-                    display_success(f"Successfully set a new price to sell! "
+                    Display.success(f"Successfully set a new price to sell! "
                                     f"({GRAY_COLOR}${self.current_item.price_to_sell}{Color.white})")
-                    await asyncio.sleep(0.7)
                 elif choose == "3":
                     self.blacklist.add(self.current_item.id)
-                    with open("items/blacklist.json", "w") as f:
-                        f.write(json.dumps(list(self.blacklist)))
-
                     self.next_item()
-                    
-                    try:
-                        asyncio.create_task(self.items[self.current_index + 1].fetch_resales(save_resales=False))
-                        asyncio.create_task(self.items[self.current_index + 1].fetch_sales(save_sales=False))
-                    except IndexError:
-                        pass
     
-                    display_success(f"Successfully added {GRAY_COLOR}{self.current_item.name} "
+                    Display.success(f"Successfully added {GRAY_COLOR}{self.current_item.name} "
                                     f"({self.current_item.id}){Color.white} into a blacklist!")
-                    await asyncio.sleep(0.7)
                 elif choose == "4":
-                    self.next_item()
+                    if self.save_progress:
+                        self.seen.add(self.current_item.id)
                     
-                    try:
-                        asyncio.create_task(self.items[self.current_index + 1].fetch_resales(save_resales=False))
-                        asyncio.create_task(self.items[self.current_index + 1].fetch_sales(save_sales=False))
-                    except IndexError:
-                        pass
+                    self.next_item()
 
-                    display_success(f"Skipped current item")
-                    await asyncio.sleep(0.7)
+                    Display.skipping(f"Skipped {GRAY_COLOR}{len(self.current_item.collectibles)}x{Color.white} collectibles")
 
-        clear_console()
-        await display_done(f"Sold {GRAY_COLOR}{self.total_sold}x{Color.white} items")
+                await asyncio.sleep(0.7)
+        
+        Tools.clear_console()
+        
+        await Display.custom(
+            f"Sold {GRAY_COLOR}{self.total_sold}x{Color.white} items",
+            "done", Color(207, 222, 0))
+        
+        if not self.clear_after_done:
+            clear_items = (await Display.custom(
+                text=f"Do you want to reset your selling progress? (Y/n): ",
+                tag="input", color=Color(168, 168, 168), end="")).strip().lower() == "y"
+        
+        if self.clear_after_done or clear_items:
+            self.seen.clear()
+            Display.success("Cleared your limiteds selling progress")
+            Tools.exit_program()
+            
 
     async def start_buy_checking(self):
         async with aiohttp.ClientSession(
@@ -371,7 +413,7 @@ class AutoSeller:
                                 "description": f"**Item name: **`{item.name}`\n"
                                                f"**Sold for: **`${sold_amount * 2} (you got ${sold_amount})`\n"
                                                f"**Sold at: **<t:{transaction_time:.0f}:f>",
-                                "url": item.url,
+                                "url": item.link,
                                 "timestamp": sale["created"],
                                 "color": 2469096,
                                 "footer": {
@@ -389,19 +431,18 @@ class AutoSeller:
                         }
 
                         async with session.post(self.buy_webhook_url, json=embed) as response:
-                            if response.status == 200:
+                            if response.status == 204:
                                 self.remove_item(item_id)
                             
-
     async def update_console(self) -> str:
-        clear_console()
-        display_main()
+        Tools.clear_console()
+        Display.main()
 
         data = {
             "Info": {
-                "Discord Bot": define_status(self.discord_bot_enabled),
+                "Discord Bot": define_status(self.discord_bot),
+                "Save Items": define_status(self.save_progress),
                 "Under Cut": f"-{self.under_cut_amount}{'%' if self.under_cut_type == 'percent' else ''}",
-                "Save Items": define_status(self.save_items),
                 "Total Blacklist": f"{len(self.blacklist)}"
             },
             "Current Item": {
@@ -409,17 +450,23 @@ class AutoSeller:
                 "Creator": self.current_item.creator_name,
                 "Price": f"{self.current_item.price:,}",
                 "Quality": f"{self.current_item.quantity:,}",
-                "Lowest Price": "No Resales" if self.current_item.has_resales is False else f"{self.current_item.lowest_resale_price:,}",
+                "Lowest Price": (f"{self.current_item.lowest_resale_price:,}" if self.current_item.has_resales is True
+                                 else "No Resales" if self.current_item.has_resales is False
+                                 else "Failed to Fetch"),
                 "Price to Sell": f"{self.current_item.price_to_sell:,}",
-                "RAP": f"{self.current_item.recent_average_price:,}",
-                "Latest Sale": "No Sales" if self.current_item.has_sales is False else f"{self.current_item.latest_sale:,}"
+                "RAP": (f"{self.current_item.recent_average_price:,}" if self.current_item.has_sales is True
+                        else "No Sales" if self.current_item.has_sales is False
+                        else "Failed to Fetch"),
+                "Latest Sale": (f"{self.current_item.latest_sale:,}" if self.current_item.has_sales is True
+                                else "No Sales" if self.current_item.has_sales is False
+                                else "Failed to Fetch")
             }
         }
 
-        display_sections(data)
-
-        choose = await display_input("[1] - Sell | [2] - Set Price | [3] - Blacklist | [4] - Skip\n> ")
-        return choose
+        Display.sections(data)
+        await Display.custom(
+            text="[1] - Sell | [2] - Set Price | [3] - Blacklist | [4] - Skip\n> ",
+            tag="input", color=Color(168, 168, 168), end="")
 
     async def send_sale_webhook(self, item: Item, sold_amount: int) -> None:
         embed = {
@@ -449,14 +496,25 @@ class AutoSeller:
                         continue
 
                     break
+    
+    async def __aenter__(self):
+        return self
 
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        tasks = [
+            asyncio.create_task(self.auth.close_session()),
+            asyncio.create_task(self.control_panel.service_message.delete()) if self.control_panel is not None else None
+        ]
+        
+        await asyncio.gather(*filter(None, tasks))
+    
     def __len__(self):
         return len(self.items)
 
 
-async def check_for_update() -> bool:
+async def check_for_update(raw_code_url: str) -> bool:
     async with aiohttp.ClientSession() as session:
-        async with session.get("https://raw.githubusercontent.com/cofiprofim/AutoSeller/refs/heads/main/main.py") as response:
+        async with session.get(raw_code_url) as response:
             try:
                 version = (await response.text()).strip().split("VERSION = \"")[1].split("\"")[0]
             except IndexError:
@@ -469,29 +527,32 @@ async def check_for_update() -> bool:
 
 
 async def main():
-    display_info("Setting up everything...")
+    Display.info("Setting up everything...")
     
-    display_info("Checking for updates")
-    if (await check_for_update()):
-        return await display_new("Your code is outdated. Please update it from github")
+    Display.info("Checking for updates")
+    code_url = "https://raw.githubusercontent.com/cofiprofim/AutoSeller/refs/heads/main/main.py"
+    if await check_for_update(code_url):
+        await Display.custom(
+            "Your code is outdated. Please update it from github",
+            "new",
+            Color(163, 133, 0),
+            exit_after=True
+        )
 
-    display_info("Loading config")
+    Display.info("Loading config")
     config = load_file("config.json")
 
-    display_info("Loading data assets")
-    blacklist = load_file("items/blacklist.json")
-    seen = load_file("items/seen.json")
-    not_resable = load_file("items/not_resable.json")
+    Display.info("Loading data assets")
+    blacklist = FileSync("items/blacklist.json")
+    seen = FileSync("items/seen.json")
+    not_resable = FileSync("items/not_resable.json")
 
     auto_seller = AutoSeller(config, blacklist, seen, not_resable)
 
     try:
         await auto_seller.start()
     except Exception:
-        return display_exception(f"Unknown error occurred:\n\n{traceback.format_exc()}")
-    finally:
-        if (auth := getattr(auto_seller, "auth")) is not None:
-            await auth.close_session()
+        return Display.exception(f"Unknown error occurred:\n\n{traceback.format_exc()}")
 
 
 if __name__ == "__main__":
