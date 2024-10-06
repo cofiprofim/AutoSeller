@@ -38,38 +38,6 @@
         }
     }
 }
-{
-    "Cookie": "",
-
-    "Discord_Bot": {
-        "Enabled": false,
-        "Token": "",
-        "Prefix": "!",
-        "Owner_IDs": []
-    },
-    "Webhook": {
-        "OnSale": {
-            "Enabled": false,
-            "Url": ""
-        },
-        "User_To_Ping": 0
-    },
-    "Auto_Sell": {
-        "Ask_Before_Sell": true,
-        "Skip_OnSale": false,
-        "Skip_If_Cheapest": false,
-        "Keep_Serials": 0,
-        "Keep_Copy": 0,
-        "Under_Cut": {
-            "Type": "percent",
-            "Value": 5
-        },
-        "Save_Progress": {
-            "Enabled": true,
-            "Clear_After_Done": false
-        }
-    }
-}
 ```
 
 ## Preview
