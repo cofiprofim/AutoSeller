@@ -12,6 +12,10 @@
             "Enabled": false,
             "Url": ""
         },
+        "OnBuy": {
+            "Enabled": false,
+            "Url": ""
+        },
         "User_To_Ping": 0
     },
     "Auto_Sell": {
