@@ -1,7 +1,7 @@
 import sys
 import os
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 
 try:
     import asyncio
@@ -57,11 +57,10 @@ class AutoSeller:
         self.bot_prefix = discord_bot.get("Prefix", "")
         self.owners_list = discord_bot.get("Owner_IDs", [])
         
-
         webhooks = config["Webhook"]
         self.user_to_ping = f"<@{webhooks['User_To_Ping']}>" if webhooks.get("User_To_Ping", 0) else ""
 
-        buy_webhook = webhooks.get("OnBuy", dict())
+        buy_webhook = webhooks["OnBuy"]
         self.buy_webhook_url = buy_webhook.get("Url", "").strip()
         self.buy_webhook = buy_webhook.get("Enabled", False)
 
@@ -90,8 +89,10 @@ class AutoSeller:
         self.current_index = 0
         self.done = False
         self.selling = WithBool()
+        self.sold_items = deque(maxlen=10)
+        self.loaded_time = None
 
-        self.auth = Auth(config.get("Cookie", ""))
+        self.auth = Auth(config.get("Cookie", "").strip())
         
         self.control_panel = None
     
@@ -100,6 +101,8 @@ class AutoSeller:
         return list(self._items.values())
 
     async def start(self):
+        await self.auth.update_csrf_token()
+        
         if self.discord_bot:
             if not self.bot_token:
                 return Display.exception("Invalid discord bot token provided")
@@ -202,10 +205,13 @@ class AutoSeller:
 
         if self.keep_serials != 0 or self.keep_copy != 0:
             for item in self.items:
-                cols_under_limit = list(filter(lambda col: col.serial > self.keep_serials, item.collectibles))
-                
-                if len(item.collectibles) <= self.keep_copy or not cols_under_limit:
+                if len(item.collectibles) <= self.keep_copy:
                     self.remove_item(item.id)
+                    continue
+                
+                for col in item.collectibles:
+                    if col.serial > self.keep_serials:
+                        col.skip_on_sale = True
         
         if not self._items:
             not_met = []
@@ -215,7 +221,10 @@ class AutoSeller:
             if self.keep_serials != 0:
                 not_met.append(f"{self.keep_serials} serial or higher")
             
-            return Display.exception(f"You dont have any limiteds with {', '.join(not_met)}")
+            list_requirements = ", ".join(not_met)
+            return Display.exception(f"You dont have any limiteds with {list_requirements}")
+        
+        self.loaded_time = datetime.now()
 
         # if self.discord_bot_enabled:
         #     TasksManager.set_success("https://cdn.discordapp.com/emojis/1244723120292499467.webp?size=40&quality=lossless")
@@ -283,15 +292,11 @@ class AutoSeller:
                 await Display.custom(
                     f"Selling {GRAY_COLOR}{len(self.current_item.collectibles)}x{Color.white} "
                     f"of {GRAY_COLOR}{self.current_item.name}{Color.white} items...",
-                    "selling",
-                    Color(255, 153, 0)
-                )
+                    "selling", Color(255, 153, 0))
 
                 sold_amount = await self.current_item.sell_collectibles(skip_on_sale=self.skip_on_sale)
                 if sold_amount is None:
                     self.not_resable.add(self.current_item.id)
-                    with open("items/not_resable.json", "w") as f:
-                        f.write(json.dumps(list(self.not_resable)))
                 else:
                     self.total_sold += sold_amount
 
@@ -299,8 +304,6 @@ class AutoSeller:
                         asyncio.create_task(self.send_sale_webhook(self.current_item, sold_amount))
                     if self.save_progress:
                         self.seen.add(self.current_item.id)
-                        with open("items/seen.json", "w") as f:
-                            f.write(json.dumps(list(self.seen)))
 
                 self.next_item()
                 await asyncio.sleep(0.5)
@@ -338,10 +341,18 @@ class AutoSeller:
                             asyncio.create_task(self.control_panel.update_service_message(self.control_panel.make_embed()))
                         
                 elif choose == "2":
-                    new_price = await Display.input("Enter a new price to sell this limited: ")
+                    new_price = await Display.custom(
+                        text=f"Do you want to reset your selling progress? (Y/n): ",
+                        tag="input", color=Color(168, 168, 168), end="").strip()
+                    
+                    if not new_price.isdigit():
+                        Display.error("Invalid price amount was provided")
+                        await asyncio.sleep(0.7)
+                        continue
+                    
                     self.current_item.price_to_sell = int(new_price)
 
-                    Display.success(f"Successfully set a new price to sell! "
+                    Display.success(f"Successfully set a new price to sell!"
                                     f"({GRAY_COLOR}${self.current_item.price_to_sell}{Color.white})")
                 elif choose == "3":
                     self.blacklist.add(self.current_item.id)
@@ -389,20 +400,32 @@ class AutoSeller:
 
                 if sales is None:
                     continue
-
-                users_thumbnails = await get_users_thumbnails([str(sale["agent"]["id"]) for sale in sales], self.auth)
+                
+                user_ids = [str(sale["agent"]["id"]) for sale in sales]
+                users_thumbnails = await get_users_thumbnails(user_ids, self.auth)
 
                 for sale, user_thumbnail in zip(sales, users_thumbnails):
                     transaction_details = sale["details"]
+                    transaction_time = datetime.strptime(sale["created"], "%Y-%m-%dT%H:%M:%S.%fZ")
 
-                    if transaction_details["type"] != "Asset":
+                    if transaction_details["type"] != "Asset" or transaction_time < self.loaded_time:
                         continue
                     
-                    item_id = transaction_details["id"]
-                    item = self.get_item(item_id)
+                    item = self.get_item(transaction_details["id"])
                     
-                    if item is not None and len(item.collectibles) <= 1:
-                        transaction_time = time.mktime(datetime.strptime(sale["created"], "%Y-%m-%dT%H:%M:%S.%fZ").timetuple())
+                    if item is None:
+                        continue
+                    
+                    old_collectibles = item.collectibles
+                    await item.fetch_collectibles()
+                    
+                    for col in old_collectibles:
+                        current = item.get_collectible(col.serial)
+                        
+                        was_sold = [c for c in self.sold_items if c[0] == item.id and c[1] == current.serial]
+                        if current is not None or was_sold:
+                            continue
+                        
                         sold_amount = sale["currency"]["amount"]
                         user = sale["agent"]
 
@@ -411,6 +434,7 @@ class AutoSeller:
                             "embeds":[{
                                 "title": "Some Bought You Item",
                                 "description": f"**Item name: **`{item.name}`\n"
+                                               f"**Item Serial: **`{current.serial}`"
                                                f"**Sold for: **`${sold_amount * 2} (you got ${sold_amount})`\n"
                                                f"**Sold at: **<t:{transaction_time:.0f}:f>",
                                 "url": item.link,
@@ -432,11 +456,13 @@ class AutoSeller:
 
                         async with session.post(self.buy_webhook_url, json=embed) as response:
                             if response.status == 204:
-                                self.remove_item(item_id)
+                                self.sold_items.append((item.id, current.serial))
                             
     async def update_console(self) -> str:
         Tools.clear_console()
         Display.main()
+        
+        item = self.current_item
 
         data = {
             "Info": {
@@ -446,19 +472,19 @@ class AutoSeller:
                 "Total Blacklist": f"{len(self.blacklist)}"
             },
             "Current Item": {
-                "Name": self.current_item.name,
-                "Creator": self.current_item.creator_name,
-                "Price": f"{self.current_item.price:,}",
-                "Quality": f"{self.current_item.quantity:,}",
-                "Lowest Price": (f"{self.current_item.lowest_resale_price:,}" if self.current_item.has_resales is True
-                                 else "No Resales" if self.current_item.has_resales is False
+                "Name": item.name,
+                "Creator": item.creator_name,
+                "Price": f"{item.price:,}",
+                "Quality": f"{item.quantity:,}",
+                "Lowest Price": (f"{item.lowest_resale_price:,}" if item.has_resales is True
+                                 else "No Resales" if item.has_resales is False
                                  else "Failed to Fetch"),
-                "Price to Sell": f"{self.current_item.price_to_sell:,}",
-                "RAP": (f"{self.current_item.recent_average_price:,}" if self.current_item.has_sales is True
-                        else "No Sales" if self.current_item.has_sales is False
+                "Price to Sell": f"{item.price_to_sell:,}",
+                "RAP": (f"{item.recent_average_price:,}" if item.has_sales is True
+                        else "No Sales" if item.has_sales is False
                         else "Failed to Fetch"),
-                "Latest Sale": (f"{self.current_item.latest_sale:,}" if self.current_item.has_sales is True
-                                else "No Sales" if self.current_item.has_sales is False
+                "Latest Sale": (f"{item.latest_sale:,}" if item.has_sales is True
+                                else "No Sales" if item.has_sales is False
                                 else "Failed to Fetch")
             }
         }
@@ -534,10 +560,7 @@ async def main():
     if await check_for_update(code_url):
         await Display.custom(
             "Your code is outdated. Please update it from github",
-            "new",
-            Color(163, 133, 0),
-            exit_after=True
-        )
+            "new", Color(163, 133, 0), exit_after=True)
 
     Display.info("Loading config")
     config = load_file("config.json")
