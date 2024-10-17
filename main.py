@@ -35,7 +35,7 @@ except ModuleNotFoundError:
     input("Press \"enter\" to exit...")
     sys.exit(1)
 
-__all__ = ("AutoSeller")
+__all__ = ("AutoSeller",)
 
 
 class AutoSeller:
