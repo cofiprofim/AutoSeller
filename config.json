@@ -24,6 +24,7 @@
         "Skip_If_Cheapest": false,
         "Keep_Serials": 0,
         "Keep_Copy": 0,
+        "Creators_Blacklist": [],
         "Under_Cut": {
             "Type": "percent",
             "Value": 5
