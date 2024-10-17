@@ -1,18 +1,16 @@
 import sys
 import os
 
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 
 try:
     import asyncio
-    import json
     from datetime import datetime
     import traceback
     import aiohttp
     from collections import deque
     from rgbprint import Color
     from aioconsole import ainput
-    import time
     from discord.errors import LoginFailure
 
     from typing import List, Optional, Any, Union
@@ -44,7 +42,14 @@ class AutoSeller:
     under_cut_types = ("robux", "percent")
     sort_items_types = ("name", "creator", "price")
     
-    def __init__(self, config: dict, blacklist: FileSync, seen: FileSync, not_resable: FileSync) -> None:
+    def __init__(
+        self,
+        config: dict,
+        blacklist: FileSync,
+        seen: FileSync,
+        not_resable: FileSync
+    ) -> None:
+        
         self.config = config
 
         self.blacklist = blacklist
@@ -75,6 +80,7 @@ class AutoSeller:
         self.sort_items_by = auto_sell.get("Sort_Items_By", "name")
         self.keep_serials = auto_sell.get("Keep_Serials", 0)
         self.keep_copy = auto_sell.get("Keep_Copy", 0)
+        self.creators_blacklist = auto_sell.get("Creators_Blacklist", [])
         
         under_cut = auto_sell["Under_Cut"]
         self.under_cut_type = under_cut.get("Type", "percent")
@@ -131,9 +137,9 @@ class AutoSeller:
         if self.auth.user_id is None:
             return Display.exception("Invalid cookie provided")
 
-        Display.info("Checking premium owning")
-        if not await self.auth.get_premium_owning():
-            return Display.exception("You dont have premium to sell limiteds")
+        # Display.info("Checking premium owning")
+        # if not await self.auth.get_premium_owning():
+        #     return Display.exception("You dont have premium to sell limiteds")
 
         Display.info("Getting current limiteds cap")
         items_cap = await get_current_cap(self.auth)
@@ -161,8 +167,9 @@ class AutoSeller:
             item_id = item["assetId"]
             item_serial = item["serialNumber"]
             item_lrp = item_details["lowestResalePrice"]
+            creator_id = item_details.get("creatorTargetId")
 
-            if item_id in ignored_items:
+            if item_id in ignored_items or (self.creators_blacklist and creator_id in self.creators_blacklist):
                 continue
             
             item_obj = self.get_item(item_id)
@@ -179,7 +186,7 @@ class AutoSeller:
                     price=item_details.get("price"),
                     lowest_resale_price=item_lrp,
                     offered_price=sell_price,
-                    creator_id=item_details.get("creatorTargetId"),
+                    creator_id=creator_id,
                     creator_name=item_details.get("creatorName"),
                     creator_type=item_details.get("creatorType"),
                     item_id=item["collectibleItemId"],
@@ -201,7 +208,13 @@ class AutoSeller:
                 )
         
         if not self._items:
-            return Display.exception(f"You dont have any limiteds that are not in {GRAY_COLOR}items/{Color.white} directory")
+            Display.error(f"You dont have any limiteds that are not in {GRAY_COLOR}blacklist/{Color.white} directory")
+            clear_items = await Display.ainput(f"Do you want to reset your selling progress? (Y/n): ")
+            
+            if clear_items.lower() == "y":
+                self.seen.clear()
+                Display.success("Cleared your limiteds selling progress")
+                Tools.exit_program() 
 
         if self.keep_serials != 0 or self.keep_copy != 0:
             for item in self.items:
@@ -281,20 +294,26 @@ class AutoSeller:
 
     async def start_selling(self):
         for i in range(2):
-            await asyncio.gather(
-                self.items[i].fetch_resales(save_resales=False),
-                self.items[i].fetch_sales(save_sales=False)
-            )
+            try:
+                await asyncio.gather(
+                    self.items[i].fetch_resales(save_resales=False),
+                    self.items[i].fetch_sales(save_sales=False)
+                )
+            except IndexError:
+                break
 
         if self.auto_sell:
-            
             while not self.done:
                 await Display.custom(
                     f"Selling {GRAY_COLOR}{len(self.current_item.collectibles)}x{Color.white} "
                     f"of {GRAY_COLOR}{self.current_item.name}{Color.white} items...",
                     "selling", Color(255, 153, 0))
 
-                sold_amount = await self.current_item.sell_collectibles(skip_on_sale=self.skip_on_sale)
+                sold_amount = await self.current_item.sell_collectibles(
+                    skip_on_sale=self.skip_on_sale,
+                    skip_if_cheapest=self.skip_if_cheapest,
+                    log=True
+                )
                 if sold_amount is None:
                     self.not_resable.add(self.current_item.id)
                 else:
@@ -323,7 +342,11 @@ class AutoSeller:
                             f"Selling {GRAY_COLOR}{len(self.current_item.collectibles)}x{Color.white} items...",
                             "selling", Color(255, 153, 0))
 
-                        sold_amount = await self.current_item.sell_collectibles(skip_on_sale=self.skip_on_sale, skip_if_cheapest=self.skip_if_cheapest)
+                        sold_amount = await self.current_item.sell_collectibles(
+                            skip_on_sale=self.skip_on_sale,
+                            skip_if_cheapest=self.skip_if_cheapest,
+                            log=True
+                        )
                         if sold_amount is None:
                             self.not_resable.add(self.current_item.id)
                         else:
@@ -341,9 +364,7 @@ class AutoSeller:
                             asyncio.create_task(self.control_panel.update_service_message(self.control_panel.make_embed()))
                         
                 elif choose == "2":
-                    new_price = await Display.custom(
-                        text=f"Do you want to reset your selling progress? (Y/n): ",
-                        tag="input", color=Color(168, 168, 168), end="").strip()
+                    new_price = await Display.ainput(f"Enter the new price you want to sell: ")
                     
                     if not new_price.isdigit():
                         Display.error("Invalid price amount was provided")
@@ -365,7 +386,6 @@ class AutoSeller:
                         self.seen.add(self.current_item.id)
                     
                     self.next_item()
-
                     Display.skipping(f"Skipped {GRAY_COLOR}{len(self.current_item.collectibles)}x{Color.white} collectibles")
 
                 await asyncio.sleep(0.7)
@@ -377,16 +397,13 @@ class AutoSeller:
             "done", Color(207, 222, 0))
         
         if not self.clear_after_done:
-            clear_items = (await Display.custom(
-                text=f"Do you want to reset your selling progress? (Y/n): ",
-                tag="input", color=Color(168, 168, 168), end="")).strip().lower() == "y"
+            clear_items = await Display.ainput(f"Do you want to reset your selling progress? (Y/n): ")
         
-        if self.clear_after_done or clear_items:
+        if self.clear_after_done or (clear_items.lower() == "y"):
             self.seen.clear()
             Display.success("Cleared your limiteds selling progress")
             Tools.exit_program()
-            
-
+    
     async def start_buy_checking(self):
         async with aiohttp.ClientSession(
                 connector=aiohttp.TCPConnector(limit=None),
@@ -476,23 +493,16 @@ class AutoSeller:
                 "Creator": item.creator_name,
                 "Price": f"{item.price:,}",
                 "Quality": f"{item.quantity:,}",
-                "Lowest Price": (f"{item.lowest_resale_price:,}" if item.has_resales is True
-                                 else "No Resales" if item.has_resales is False
-                                 else "Failed to Fetch"),
+                "Lowest Price": item.define_lowest_resale_price(),
                 "Price to Sell": f"{item.price_to_sell:,}",
-                "RAP": (f"{item.recent_average_price:,}" if item.has_sales is True
-                        else "No Sales" if item.has_sales is False
-                        else "Failed to Fetch"),
-                "Latest Sale": (f"{item.latest_sale:,}" if item.has_sales is True
-                                else "No Sales" if item.has_sales is False
-                                else "Failed to Fetch")
+                "RAP": item.define_recent_average_price(),
+                "Latest Sale": item.define_latest_sale()
             }
         }
 
         Display.sections(data)
-        await Display.custom(
-            text="[1] - Sell | [2] - Set Price | [3] - Blacklist | [4] - Skip\n> ",
-            tag="input", color=Color(168, 168, 168), end="")
+        await Display.custom("[1] - Sell | [2] - Set Price | [3] - Blacklist | [4] - Skip\n> ",
+                             "input", Display.ainput_color, end="")
 
     async def send_sale_webhook(self, item: Item, sold_amount: int) -> None:
         embed = {
@@ -526,7 +536,7 @@ class AutoSeller:
     async def __aenter__(self):
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, *_):
         tasks = [
             asyncio.create_task(self.auth.close_session()),
             asyncio.create_task(self.control_panel.service_message.delete()) if self.control_panel is not None else None
@@ -566,9 +576,9 @@ async def main():
     config = load_file("config.json")
 
     Display.info("Loading data assets")
-    blacklist = FileSync("items/blacklist.json")
-    seen = FileSync("items/seen.json")
-    not_resable = FileSync("items/not_resable.json")
+    blacklist = FileSync("blacklist/blacklist.json")
+    seen = FileSync("blacklist/seen.json")
+    not_resable = FileSync("blacklist/not_resable.json")
 
     auto_seller = AutoSeller(config, blacklist, seen, not_resable)
 
