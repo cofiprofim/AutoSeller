@@ -1,6 +1,6 @@
 # AutoSeller
-#### A #1 roblox tool to sell UGC Limiteds
-## Setup
+### A #1 roblox tool to sell UGC Limiteds
+# Setup
 ```json
 {
     "Cookie": "", Your roblox cookie from where all the items will sell (instruction below)
@@ -28,6 +28,7 @@
         "Skip_If_Cheapest": false, If you have this enabled and item that you are selling is already the lowest in resale it will be skipped
         "Keep_Serials": 0, Any item serial which will be under or equals this number will be skipped (0 to include all)
         "Keep_Copy": 0, Any item which amount of dublicates will be under or equals this number will be skipped (0 to include all)
+        "Creators_Blacklist": [], The list of creator ids that you want to blacklist, empty if include everyone
         "Under_Cut": {
             "Type": "percent", If you have this set at "robux" the LRP of the limited will dicrease by a robux, if "percent" will decrease by percent
             "Value": 5 Amount of how much limited LRP should decrease (0 to sell for the same price)
@@ -40,7 +41,8 @@
 }
 ```
 
-## Preview
-![image](https://github.com/user-attachments/assets/ce1872b6-96ac-4787-a2a6-4725d921d026)
-## Help
-Contanct me on discord for any questions: [deadlysilence._](https://discord.com/channels/)
+# Preview
+![image](https://github.com/user-attachments/assets/eeaa7337-bf2d-4fcd-a2ac-5502549599f3)
+
+# Help
+Contact me on discord for any questions or ideas: [deadlysilence._](https://discord.com/channels/)
