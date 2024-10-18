@@ -63,7 +63,7 @@ class AutoSeller:
         self.owners_list = discord_bot.get("Owner_IDs", [])
         
         webhooks = config["Webhook"]
-        self.user_to_ping = f"<@{webhooks['User_To_Ping']}>" if webhooks.get("User_To_Ping", 0) else ""
+        self.user_to_ping = webhooks.get("User_To_Ping", 0) and f"<@{webhooks['User_To_Ping']}>" or ""
 
         buy_webhook = webhooks["OnBuy"]
         self.buy_webhook_url = buy_webhook.get("Url", "").strip()
