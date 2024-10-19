@@ -137,9 +137,9 @@ class AutoSeller:
         if self.auth.user_id is None:
             return Display.exception("Invalid cookie provided")
 
-        # Display.info("Checking premium owning")
-        # if not await self.auth.get_premium_owning():
-        #     return Display.exception("You dont have premium to sell limiteds")
+        Display.info("Checking premium owning")
+        if not await self.auth.get_premium_owning():
+            return Display.exception("You dont have premium to sell limiteds")
 
         Display.info("Getting current limiteds cap")
         items_cap = await get_current_cap(self.auth)
