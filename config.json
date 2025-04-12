@@ -20,6 +20,7 @@
     },
     "Auto_Sell": {
         "Ask_Before_Sell": true,
+        "Save_Progress": true,
         "Skip_OnSale": false,
         "Skip_If_Cheapest": false,
         "Keep_Serials": 0,
@@ -28,10 +29,6 @@
         "Under_Cut": {
             "Type": "percent",
             "Value": 5
-        },
-        "Save_Progress": {
-            "Enabled": true,
-            "Clear_After_Done": false
         }
     }
 }
