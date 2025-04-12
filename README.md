@@ -24,6 +24,7 @@
     },
     "Auto_Sell": {
         "Ask_Before_Sell": true, If you have this enabled, tool will ask you each item to sell
+        "Save_Progress": true, If you have this enabled all the items that you "sold" or "skiped" an ID of this item will be saved in items/seen.json file and ingored next time you open program
         "Hide_OnSale": false, If you will try to sell item which is already on sale when you have this option enabled, it will be ignored
         "Skip_If_Cheapest": false, If you have this enabled and item that you are selling is already the lowest in resale it will be skipped
         "Keep_Serials": 0, Any item serial which will be under this number will be skipped (0 to include all)
@@ -31,10 +32,6 @@
         "Under_Cut": {
             "Type": "percent", If you have this set at "robux" the LRP of the limited will dicrease by a robux, if "percent" will decrease by percent
             "Value": 5 Amount of how much limited LRP should decrease (0 to sell for the same price)
-        },
-        "Save_Progress": {
-            "Enabled": true, If you have this enabled all the items that you "sold" or "skiped" an ID of this item will be saved in items/seen.json file and ingored next time you open program
-            "Clear_After_Done": false If you have this enabled after selling all your limiteds the items/seen.json file will reset automatically
         }
     }
 }
