@@ -15,7 +15,7 @@ TITLE = r"""  ___        _        _____      _ _
 FAILED_IMAGE_URL = "https://i.ibb.co/Cs3Wvgb/7189017466763a9ed8874824aceba073.png"
 RAW_CODE_URL = "https://raw.githubusercontent.com/cofiprofim/AutoSeller/refs/heads/main/main.py"
 
-WEBHOOK_PATTERN = re.compile(r"https?://discord.com/api/webhooks/\d+/\w{11}_\w{56}")
+WEBHOOK_PATTERN = re.compile(r"https?://discord.com/api/webhooks/\d+/\w+[-_]\w+")
 COLOR_CODE_PATTERN = re.compile(r"\033\[[0-9;]*m")
 
 ITEM_TYPES = {8: "Hat", 41: "HairAccessory", 42: "FaceAccessory", 43: "NeckAccessory",
