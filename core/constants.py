@@ -1,6 +1,6 @@
 import re
 
-VERSION = "1.2.3"
+VERSION = "1.2.5"
 
 SIGNATURE = f"Limiteds Seller Tool v{VERSION}"
 TITLE = r"""  ___        _        _____      _ _           
