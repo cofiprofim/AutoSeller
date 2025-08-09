@@ -82,16 +82,20 @@ class Item:
                         return "Failed to Fetch"
 
             return wrapper
+
         return decorator
 
     @__define_status("lowest_resale_price", "has_resales", "resales")
-    def define_lowest_resale_price(self, state) -> str: ...
+    def define_lowest_resale_price(self, state) -> str:
+        ...
 
     @__define_status("recent_average_price", "has_sales", "sales")
-    def define_recent_average_price(self) -> str: ...
+    def define_recent_average_price(self) -> str:
+        ...
 
     @__define_status("latest_sale", "has_sales", "sales")
-    def define_latest_sale(self) -> str: ...
+    def define_latest_sale(self) -> str:
+        ...
 
     def add_collectible(
         self,
@@ -127,10 +131,10 @@ class Item:
     async def sell_collectibles(
         self,
         price: Optional[int] = None,
-        skip_on_sale: Optional[bool] = False,
-        skip_if_cheapest: Optional[bool] = False,
-        log: Optional[bool] = True,
-        retries: Optional[int] = 3
+        skip_on_sale: bool = False,
+        skip_if_cheapest: bool = False,
+        verbose: bool = True,
+        retries: int = 1
     ) -> Optional[int]:
         await self.fetch_collectibles()
 
@@ -144,38 +148,45 @@ class Item:
                 continue
 
             elif col.sale_price == price_to_sell:
-                if log: Display.skipping(f"This collectible is already on sale for the same price [g(#{col.serial})]")
+                if verbose:
+                    Display.skipping(f"This collectible is already on sale for the same price [g(#{col.serial})]")
                 continue
 
             elif col.on_sale:
                 if skip_on_sale:
-                    if log: Display.skipping(f"This collectible is already on sale [g(#{col.serial})]")
+                    if verbose:
+                        Display.skipping(f"This collectible is already on sale [g(#{col.serial})]")
                     continue
 
                 elif skip_if_cheapest and self.lowest_resale_price == col.sale_price:
-                    if log: Display.skipping(f"You are already selling this collectible for the cheapest price [g(#{col.serial})]")
+                    if verbose:
+                        Display.skipping(f"You are already selling this collectible for the cheapest price [g(#{col.serial})]")
                     continue
 
             while True:
-                status = await col.sell(price_to_sell, self.auth)
+                response = await col.sell(price_to_sell, self.auth)
 
-                match status:
+                match response.status:
                     case 200:
-                        if log: Display.success(f"Successfully sold for $[g{price_to_sell} (#{col.serial})]")
+                        if verbose:
+                            Display.success(f"Successfully sold for $[g{price_to_sell} (#{col.serial})]")
 
                         sold_amount += 1
                         break
                     case 429:
-                        if log: Display.error("You got rate limited! Trying again in 30 seconds...")
+                        if verbose:
+                            Display.error("You got rate limited! Trying again in 30 seconds...")
                         tries += 1
                         await asyncio.sleep(30)
-                    case 403 | 412:
-                        if log: Display.skipping("Item is not resable. Skipping it")
-                        return None
+                    case 403:
+                        if response.reason == "Forbidden":
+                            break
+                        tries += 1
                     case None:
                         break
                     case _:
-                        if log: Display.error(f"Failed to sell limited ({status})")
+                        if verbose:
+                            Display.error(f"Failed to sell limited ({response.status}): {response.reason}")
 
                         tries += 1
                         await asyncio.sleep(3)
@@ -191,7 +202,7 @@ class Item:
                           save_rap: Optional[bool] = True,
                           save_latest_sale: Optional[bool] = True) -> None:
         async with self.auth.get(
-                f"apis.roblox.com/marketplace-sales/v1/item/{self.item_id}/resale-data"
+            f"apis.roblox.com/marketplace-sales/v1/item/{self.item_id}/resale-data"
         ) as response:
             if response.status != 200:
                 return None
@@ -221,7 +232,10 @@ class Item:
     async def fetch_resales(self, *,
                             save_resales: Optional[bool] = True,
                             save_lrp: Optional[bool] = True) -> None:
-        async with self.auth.get(f"apis.roblox.com/marketplace-sales/v1/item/{self.item_id}/resellers?limit=99") as response:
+        async with self.auth.get(
+            f"apis.roblox.com/marketplace-sales/v1/item/{self.item_id}/resellers?"
+            f"limit=99"
+        ) as response:
             try:
                 data = (await response.json()).get("data")
             except:
@@ -255,8 +269,8 @@ class Item:
 
         while True:
             async with self.auth.get(
-                    f"apis.roblox.com/marketplace-sales/v1/item/{self.item_id}/resellable-instances?"
-                    f"cursor={cursor}&ownerType=User&ownerId={self.auth.user_id}&limit=9999999"
+                f"apis.roblox.com/marketplace-sales/v1/item/{self.item_id}/resellable-instances?"
+                f"cursor={cursor}&ownerType=User&ownerId={self.auth.user_id}&limit=9999999"
             ) as response:
                 if response.status != 200:
                     return None

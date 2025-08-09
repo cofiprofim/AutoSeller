@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sys
 import os
 
@@ -7,14 +9,17 @@ try:
     import discord
     import aioconsole
     import asyncio
-    import collections
+    from random import random
     from rgbprint import Color
     from datetime import datetime
     from traceback import format_exc
+    from pypresence import AioPresence, DiscordNotFound
 
-    from typing import List, Optional, Any, Union, AsyncGenerator, Iterable
+    from typing import List, Optional, Any, Union, AsyncGenerator, Iterable, TYPE_CHECKING
     from discord.errors import LoginFailure
     from asyncio import Task
+    if TYPE_CHECKING:
+        from .discord_bot.visuals.view import ControlPanel
 
     from core.instances import *
     from core.main_tools import *
@@ -22,16 +27,20 @@ try:
     from core.visuals import *
     from core.detection import *
     from core.utils import *
-    from core.constants import VERSION, RAW_CODE_URL, ITEM_TYPES
+    from core.constants import VERSION, RAW_CODE_URL, ITEM_TYPES, PRESENCE_BOT_ID, URL_REPOSITORY
     from discord_bot import start as discord_bot_start
 
     os.system("cls" if os.name == "nt" else "clear")
 except ModuleNotFoundError:
+    import traceback
+    print(traceback.format_exc())
     install = input("Uninstalled modules found, do you want to install them? Y/n: ").lower() == "y"
 
     if install:
         print("Installing modules now...")
-        os.system("pip install aiohttp rgbprint discord.py aioconsole")
+        print("hi")
+        os.system("pip uninstall pycord")
+        os.system("pip install aiohttp rgbprint discord.py aioconsole pypresence")
         print("Successfully installed required modules.")
     else:
         print("Aborting installing modules.")
@@ -64,12 +73,15 @@ class AutoSeller(ConfigLoader):
         self.seen = seen
         self.not_resable = not_resable
 
+        if self.presence_enabled:
+            self.rich_presence = AioPresence(PRESENCE_BOT_ID)
+
         self.current_index = 0
         self.done = False
         self.total_sold = 0
         self.selling = WithBool()
-        self.loaded_time = None
-        self.control_panel = None
+        self.loaded_time: datetime = None
+        self.control_panel: ControlPanel = None
 
     @property
     def items(self) -> List[Item]:
@@ -80,38 +92,67 @@ class AutoSeller(ConfigLoader):
         return self.items[self.current_index]
 
     def get_item(self, _id: int, default: Optional[Any] = None) -> Union[Item, Any]:
-        return self._items.get(item, default)
+        return self._items.get(_id, default)
 
     def add_item(self, item: Item) -> Item:
         self._items.update({item.id: item})
         return item
 
     def remove_item(self, _id: int) -> Item:
-        return self._items.pop(item)
+        return self._items.pop(_id)
 
     def next_item(self, *, step_index: int = 1) -> None:
         self.current_index = (self.current_index + 1) % len(self.items)
+
+        if self.presence_enabled:
+            asyncio.create_task(self.update_presence())
 
         if not self.current_index:
             self.done = True
 
         self.fetch_item_info(step_index=step_index)
 
-    def fetch_item_info(self, *,
-                        fetch_sales: bool = True,
-                        fetch_resales: bool = True,
-                        step_index: int = 1) -> Optional[Iterable[Task]]:
+    async def update_presence(self) -> None:
+        easter_egg = random() < 0.3
+
+        await self.rich_presence.update(
+            state=f"{self.current_index + 1} out of {len(self.items)}",
+            details=f"Selling {self.current.name} limited",
+            large_image=self.current.thumbnail if not easter_egg else "https://cdn.discordapp.com/avatars/1284536257958903808/fa4fba77caa6cc68f2972e2ea33e67a5.png?size=4096",
+            large_text=f"{self.current.name} limited" if not easter_egg else "Pisun easter egg (3% chance)",
+            small_image="https://cdn.discordapp.com/app-assets/1005469189907173486/1025422070600978553.png?size=160",
+            small_text="Roblox",
+            buttons=[{"url": self.current.link, "label": "Selling Item"},
+                     {"url": URL_REPOSITORY, "label": "Use Tool Yourself"}],
+            start=int(self.loaded_time.timestamp())
+        )
+
+    async def filter_non_resable(self):
+        if (self.current_index + 2) % 30 or not self.current_index:
+            return None
+
+        async with self.auth.post(
+            "apis.roblox.com/marketplace-items/v1/items/details",
+            json={"itemIds": [i.item_id for i in self.items[self.current_index:30]]}
+        ) as response:
+            for item_details in await response.json():
+                item_id = item_details["itemTargetId"]
+
+                if item_details["resaleRestriction"] == 1:
+                    self.not_resable.add(item_id)
+                    self.remove_item(item_id)
+
+    def fetch_item_info(self, *, step_index: int = 1) -> Optional[Iterable[Task]]:
         try:
             item = self.items[self.current_index + step_index]
         except IndexError:
             return None
 
-        tasks = (
-            asyncio.create_task(item.fetch_sales(save_sales=False)) if fetch_sales else None,
-            asyncio.create_task(item.fetch_resales(save_resales=False)) if fetch_resales else None
+        return (
+            asyncio.create_task(item.fetch_sales(save_sales=False)),
+            asyncio.create_task(item.fetch_resales(save_resales=False)),
+            asyncio.create_task(self.filter_non_resable())
         )
-
-        return filter(None, tasks)
 
     def sort_items(self, _type: str) -> None:
         self._items = dict(sorted(self._items.items(), key=lambda x: getattr(x[1], _type)))
@@ -131,6 +172,13 @@ class AutoSeller(ConfigLoader):
         await self._load_items()
         self.sort_items("name")
 
+        if self.presence_enabled:
+            try:
+                await self.rich_presence.connect()
+                await self.update_presence()
+            except DiscordNotFound:
+                return Display.exception("Could find Discord running to show presence")
+
         try:
             async with self:
                 tasks = (
@@ -142,7 +190,7 @@ class AutoSeller(ConfigLoader):
                 await asyncio.gather(*filter(None, tasks))
         except LoginFailure:
             return Display.exception("Invalid discord token provided")
-        except Exception:
+        except:
             return Display.exception(f"Unknown error occurred:\n\n{format_exc()}")
 
     async def start_selling(self):
@@ -173,11 +221,10 @@ class AutoSeller(ConfigLoader):
         sold_amount = await self.current.sell_collectibles(
             skip_on_sale=self.skip_on_sale,
             skip_if_cheapest=self.skip_if_cheapest,
-            log=True
+            verbose=True
         )
-        if sold_amount is None:
-            self.not_resable.add(self.current.id)
-        else:
+
+        if sold_amount is not None:
             self.total_sold += sold_amount
 
             if self.sale_webhook and sold_amount > 0:
@@ -196,9 +243,9 @@ class AutoSeller(ConfigLoader):
     async def _manual_selling(self):
         while not self.done:
             await self.update_console()
-            choose = (await aioconsole.ainput()).strip()
+            choice = (await aioconsole.ainput()).strip()
 
-            match choose:
+            match choice:
                 case "1":
                     if self.selling:
                         Display.error("This item is already being sold")
@@ -209,7 +256,7 @@ class AutoSeller(ConfigLoader):
                         await self.sell_item()
 
                         if self.control_panel is not None:
-                            asyncio.create_task(self.control_panel.update_service_message(self.control_panel.make_embed()))
+                            asyncio.create_task(self.control_panel.update_message(self.control_panel.make_embed()))
                 case "2":
                     new_price = await Display.input(f"Enter the new price you want to sell: ")
 
@@ -386,13 +433,13 @@ class AutoSeller(ConfigLoader):
     async def __aexit__(self, *_):
         tasks = (
             self.auth.close_session(),
-            self.control_panel.service_message.delete() if self.control_panel else None
+            self.control_panel.message.delete() if self.control_panel else None
         )
 
         await asyncio.gather(*filter(None, tasks))
 
 
-async def main():
+async def main() -> None:
     Display.info("Setting up everything...")
 
     Display.info("Checking for updates")
@@ -419,3 +466,71 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+"""
+    ___     __      ___       _  _       _  _          _    _         _         ___          _  _       ____       ___        ____   
+   F _ ",   FJ     F __".    FJ  L]     F L L]        F L  J J       /.\       F __".       FJ  L]     F ___J     F _ ",     F ___J  
+  J `-' |  J  L   J (___|   J |  | L   J   \| L      J J .. L L     //_\\     J (___|      J |__| L   J |___:    J `-'(|    J |___:  
+  |  __/F  |  |   J\___ \   | |  | |   | |\   |      | |/  \| |    / ___ \    J\___ \      |  __  |   | _____|   |  _  L    | _____| 
+  F |__/   F  J  .--___) \  F L__J J   F L\\  J      F   /\   J   / L___J \  .--___) \     F L__J J   F L____:   F |_\  L   F L____: 
+ J__|     J____L J\______J J\______/F J__L \\__L    J___//\\___L J__L   J__L J\______J    J__L  J__L J________L J__| \\__L J________L
+ |__L     |____|  J______F  J______F  |__L  J__|    |___/  \___| |__L   J__|  J______F    |__L  J__| |________| |__|  J__| |________|
+                                                                                                                                     
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#**##***%%%%%%%%%%%%%%%%%%%%%%%%%@@@@@@@@@@@@@@@@@@@@@@@@@@@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%##*+=-:::::::::-----=+*##%%%%%%%%%%%%%%%%@@@@@@@@@@@@@@@@@@@@@@@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%##+=--:::::::::::::::::::::::::-+*##%%%%%%%%%%%%%@@@@@@@@@@@@@@@@@@@@
+%%%%%%%%%%%%%%%%%%%%%%%%%%#**+=-:::::::::::::::::::::::::::::::::::-=**#%%%%%%%%%%%%%%@@@@@@@@@@@@@%
+######%%%%%%%%%%%%%%%%%##+=-:::::::::::::::::::::::::::::::::::::::::::=*#%%%%%%%%%%%%%%%%%%%%%%%%%%
+##########%%%%%%%%###*+=-::::::::::::::::::::::::::::::::::::::::::::::::-*#%%%%%%%%%%%%%%%%%%%%%%%%
+##############%%###+=----::::::::::::::::::::::::::::::::::::::::::::::::::-*#%%%%%%%%%%%%%%%%%%%%%%
+#################*=------------:----:::::::::::::::::::::::::::::::::::::::::-*#%%%%%%%%%%%%%%%%%%%%
+################*+=------------------------------:::::::::::::::::::::::::::::-*#%%%%%%%%%%%%%%%%%%%
+##############+=====------------------------------:::::::::::::::::::::::::::::=##%%%%%%%%%%%%%%%%%%
+############*=----===--------------=======------------:::::::::::::::::::::::::-*###%%%%%%%%%%%%%%%%
+##########*+------====-------===================---------::----:::::---::::::::-+######%%%%%%%%%%%%%
+#########*=--------====-===========+++++++****++===------------------=---:::::::=*#########%%%%%%%%%
+########+--------============+++++++++*###%@@@%#*+=====--------=++======---:::::=*###########%%%%%%%
+#######+=--------=============+++++++++%%%@@@@@@@#**++===-----=*#==+++===---:::-+*##############%%%%
+######+=---------=====------===========+*#%@@@@@@@@%%#**+++++*%@%#*##*++====---=+**##############%%%
+#####*==---------====------------=========+*#%%%%%%%%%#*******#%@@%%#**++++====--=+*################
+####*+==--------=====--------------=============+=++++*****#######%%#####***++===-=+***#############
+###*+===--------=====----------------================++*#%###%%###*******###**++===--+***###########
+##*====--------=====-------------------================+##**#######%%%%#####***++==--=+****#########
+##*======------====----==-=======------=================+**######%%%%%%%%%%%%%%#*#*=::-=+***########
+##+=======---======--------------==------=======------====++****###%%%%%##%%%@@%#+=-:::-+****#######
+#*+===============----------------==--------------=----====++***###%%%%%%%%#+--:::::::::-+****######
+#*+=========+=====------=====-------------------==--------===+****#**++----::::::::::::::-+*****####
+*+====================------------------------==----------===+++++++==----::::::::::::::::-+*****###
++=========++++=========--=-----=--------------===----------=+++=======---:::::::::::::::::-=******##
++==+++===+*++==--===============-----------------==---------++==+====-----:::::::::::::::::-+******#
+++++++++++*+++=====================----======---==----------====+==-----::::::::::::::::::::=+*****#
++++=====++++++=+==================================--==---------====----:::::::::::::::::::::-+******
+++++====++**+++++++======++====++===============----==----------===----:::::::::::::::::::::-=+*****
++++++++++****+==++++=====+++==++++===============-====-----------------:::::::::::::::::::::-=+*****
+**++++++****++++++++=======+++=+++========++===========----------------::::::::::::::::::::::=+*****
+**+*********++=++++++=======++++++=======================---------------::::::::::::::::::::-=++****
+**++++*+*****++*++*++++==========+================----=====-------------::::::::::::::::::::-=+*****
+**++++++*##***+++++=+++++=================---=======----===--------------::::::::::--::::::::=+*****
+********###***++==+++=++++======+=========-=---===---------=--------------:::::::::--:::::::-=+*****
+***+*****###**+++++=+==++++========++=+++====--===--===----==-------------::::::::--::::::::-++*****
+*********#####*+++*+++++++++==========++++=========-------------------------::-::--::::::::-=+******
+*********######++*+++++=++=+=========================------------------------------:::::::--+++*****
+*********######*****++++++++++++======================-----------------------------:::::::-=++++****
+*******#########******+*+=+++++++++=++=++====================---------------------:::::::-=++++++***
+*****############*+******+++++++++++++==+====================-------------------------:::-=+++++++**
+******############***#***++===+==+==+==========================-----------------------:--=+++++++++*
+******#############**##****+==+++++++====+++++===-==============------------------------=+++++++++++
+*******##########%%#****##****++++++++=+=+++=+==============---===---------------------=++++++++++++
+********###%%%%###%%%##*********++++++++++++==+====================---==--------------=+++++++++++++
+**********#%%%%%%#%%%%%##***+****+++++++==+++===----======+++++========-------------=+++++++++++++++
+***********##%%%%%%#%%%%%%####*****++++*++=+++++=======+++++++=====----======-----==++++++++++++++++
+************##%%%%%%%#%%%%%%%%######******++**++******+++++++=====----====-----===++++++++++++++*+++
+**************#%%%%%%%%%%%%%%%%%%%%%%%#########*#**#**+++++=+===================+++++++++++++++*****
+*********####**##%%%%%%%%%%%%%%%%%%%%%%%%%%%###***++++++==++==++==============+++++++++*************
+###################%%%@@@%%%%%%%##########*******++++++=++++++++++=========+++**********************
+%%%%%%%%%%%#%%%#%%%%%%%%@@@@@@@@%%##%##*##*****##**++++++++***++++++++++++**************************
+%%%%%%%%%%%%%%%%%%%%%%%%%%@@@@@@@@@@%%%%%@%########***************++++****************************##
+%%%%%%%%%%%%%%@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@%%%%%%%%%%##########********************************###
+"""
+

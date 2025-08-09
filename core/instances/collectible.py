@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
+import aiohttp
+
 if TYPE_CHECKING:
     from .item import Item
 
@@ -58,7 +60,7 @@ class Collectible:
 
         self.skip_on_sale = skip_on_sale
 
-    async def sell(self, price: int, auth: Auth) -> Optional[int]:
+    async def sell(self, price: int, auth: Auth) -> Optional[aiohttp.ClientResponse]:
         if None in (self.item_id, self.instance_id, self.product_id) or self.skip_on_sale:
             return None
 
@@ -71,13 +73,13 @@ class Collectible:
         }
 
         async with auth.patch(
-                f"apis.roblox.com/marketplace-sales/v1/item/{self.item_id}/instance/{self.instance_id}/resale",
-                json=payload
+            f"apis.roblox.com/marketplace-sales/v1/item/{self.item_id}/instance/{self.instance_id}/resale",
+            json=payload
         ) as response:
             if response.status == 200:
                 self.on_sale = True
 
-            return response.status
+            return response
 
     async def take_off_sale(self, auth: Auth) -> Optional[int]:
         if None in (self.item_id, self.instance_id, self.product_id):

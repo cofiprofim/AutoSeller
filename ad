@@ -1,0 +1,87 @@
+* [33m1655e15[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m Version change
+*   [33m30d6478[m Merge branch 'main' of https://github.com/cofiprofim/AutoSeller
+[32m|[m[33m\[m  
+[32m|[m * [33m31f183e[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Update README.md
+[32m|[m *   [33m14413d0[m Merge pull request #2 from 78845544/patch-2
+[32m|[m [34m|[m[35m\[m  
+[32m|[m [34m|[m * [33m403e683[m Update main.py
+[32m|[m [34m|[m * [33mda93bd3[m pisun.py
+[32m|[m [34m|[m[34m/[m  
+* [34m/[m [33m1b8bf57[m Minor update
+[34m|[m[34m/[m  
+* [33mf391c4b[m Update constants.py
+* [33mbb267b9[m[33m ([m[1;33mtag: [m[1;33m1.2.5[m[33m)[m Update constants.py
+* [33mfa02d19[m[33m ([m[1;33mtag: [m[1;33m1.2.4[m[33m)[m Update __init__.py
+* [33me5de2b8[m Update main.py
+* [33mf99ddd8[m[33m ([m[1;33mtag: [m[1;33m1.2.3[m[33m)[m Update visuals.py
+* [33m6bfdf2c[m Update utils.py
+* [33m697d01e[m Update detection.py
+* [33m6bb8123[m Add files via upload
+* [33m5d4b473[m Delete core/main_tools/__pycache__ directory
+* [33mc597be6[m Add files via upload
+* [33m3aaad62[m Create __init__.py
+* [33ma34ad78[m Add files via upload
+* [33mbac41b1[m Create __init__.py
+* [33maee55be[m Update and rename discord_bot/embeds.py to discord_bot/visuals/embeds.py
+* [33m832833c[m Update and rename discord_bot/buttons.py to discord_bot/visuals/view.py
+* [33m4caed8c[m Create popups.py
+* [33m4b446f4[m Add files via upload
+* [33m0b27f3e[m Create __init__.py
+* [33m409c210[m Update README.md
+* [33m38209f3[m Update config.json
+* [33ma28aa38[m Update README.md
+* [33m2c94043[m Update README.md
+* [33md690bd4[m Update main.py
+* [33maa9cf57[m Update main.py
+* [33m84664e3[m Update main.py
+* [33mcd6b444[m Update config.json
+* [33mb09079d[m[33m ([m[1;33mtag: [m[1;33m1.2.2[m[33m)[m Update README.md
+* [33m66e75f2[m Create .gitignore
+* [33m50bd1a8[m Add files via upload
+* [33mbf6c14f[m Delete core directory
+* [33m2201c7c[m Delete discord_bot directory
+* [33m26b7113[m Delete items directory
+* [33mb2e7da4[m Update main.py
+* [33m4cf54fd[m[33m ([m[1;33mtag: [m[1;33m1.2.1[m[33m)[m Add files via upload
+* [33m5421886[m Delete core directory
+* [33m8386389[m Delete discord_bot directory
+* [33m48a198b[m Update config.json
+* [33m780a324[m Update main.py
+* [33me8e57b2[m[33m ([m[1;33mtag: [m[1;33m1.2.0[m[33m)[m Update README.md
+* [33m7ab02ed[m Update README.md
+* [33m6528117[m Add files via upload
+* [33m9a534e6[m Delete core directory
+* [33mbcac08e[m Delete discord_bot directory
+* [33m6083765[m Update config.json
+* [33mb7ce0ac[m Update main.py
+* [33m7ac11a7[m Update main.py
+* [33me38c0b5[m[33m ([m[1;33mtag: [m[1;33m1.1.2[m[33m)[m Update config.json
+* [33md93d466[m Add files via upload
+* [33m7e54f43[m Delete core directory
+* [33m7689d61[m Delete discord_bot directory
+* [33md4bec25[m Delete main.py
+* [33mdf7859b[m[33m ([m[1;33mtag: [m[1;33m1.1.1[m[33m)[m Add files via upload
+* [33mcfc8bbd[m Delete core directory
+* [33me73fb18[m Delete discord_bot directory
+* [33me35593f[m Delete config.json
+* [33m474a89a[m Delete main.py config.json items/ discord_bot/ core/
+* [33mc4605b1[m[33m ([m[1;33mtag: [m[1;33m1.1.0[m[33m)[m Create README.md
+* [33maa6d321[m Add files via upload
+* [33mc68e4aa[m Delete core directory
+* [33md2bf098[m Delete discord_bot directory
+* [33m15ab720[m Delete items directory
+* [33md12228f[m Delete README.md
+* [33mdec72b4[m Delete config.json
+* [33m3c49077[m Delete main.py
+* [33mca5394d[m Delete core/__pycache__ directory
+* [33m0045dfb[m Delete discord_bot/__pycache__ directory
+* [33maa5d5a3[m[33m ([m[1;33mtag: [m[1;33m1.0.2[m[33m)[m Update README.md
+* [33m81699d5[m Update main.py
+* [33m6592f96[m Add files via upload
+* [33m839aada[m Delete core directory
+* [33m026e1fe[m Delete discord_bot directory
+* [33m4c63c9c[m Delete blacklist.json
+* [33m3eea47f[m Delete config.json
+* [33m88a1d7e[m Delete main.py
+* [33mcd39c21[m[33m ([m[1;33mtag: [m[1;33m1.0.1[m[33m)[m Add files via upload
+* [33m323e50b[m Initial commit

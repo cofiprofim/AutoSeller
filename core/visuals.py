@@ -59,7 +59,8 @@ class Display(BaseColors):
 
     @staticmethod
     def _make_display(color: Color, *,
-                      end: str = "\n", tag: Optional[str] = None):
+                      end: str = "\n",
+                      tag: Optional[str] = None):
 
         def decorator(func: callable) -> classmethod:
             final_tag = (tag or func.__name__).upper()
@@ -87,20 +88,20 @@ class Display(BaseColors):
         cls._print_centered(SIGNATURE, super().accent, end="\n\n")
 
     @_make_display(BaseColors.info)
-    def info(cls, text: str): ...
+    def info(cls, _: str): ...
 
     @_make_display(BaseColors.success)
-    def success(cls, text: str): ...
+    def success(cls, _: str): ...
 
     @_make_display(BaseColors.error)
     def exception(cls, _: str):
         Tools.exit_program()
 
     @_make_display(BaseColors.error)
-    def error(cls, text: str): ...
+    def error(cls, _: str): ...
 
     @_make_display(BaseColors.skipping)
-    def skipping(cls, text: str): ...
+    def skipping(cls, _: str): ...
 
     @classmethod
     async def input(cls, text: str) -> str:
@@ -111,10 +112,14 @@ class Display(BaseColors):
                      exit_after: bool = False, use_input: bool = False,
                      end: str = "\n") -> Union[str, NoReturn]:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        final_text = re.sub(r"\[g(.*?)]",
+                            rf"{BaseColors.gray}\g<1>{BaseColors.reset}",
+                            text)
 
         display_text = (f"{super().timestamp}{timestamp}"
                         f" > {color}{tag.upper()}{super().reset}"
-                        f" | {text}")
+                        f" | {final_text}")
 
         choice = (await aioconsole.ainput(display_text)).lower().strip() \
             if use_input \

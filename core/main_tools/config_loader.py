@@ -11,6 +11,8 @@ class ConfigLoader:
     sort_items_types = ("name", "creator", "price")
 
     def __init__(self, config: dict):
+        self.presence_enabled = config["Discord_Rich_Presence"]
+
         discord_bot = config["Discord_Bot"]
         self.discord_bot = discord_bot.get("Enabled", False)
         self.bot_token = discord_bot.get("Token", "").strip()

@@ -97,7 +97,6 @@ async def get_user_inventory(item_type: int, auth: Auth) -> List[dict]:
         ) as response:
             if response.status != 200:
                 return assets
-
             data = await response.json()
 
             cursor = data.get("nextPageCursor")

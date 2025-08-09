@@ -60,7 +60,6 @@ class Auth(ClientSession):
     async def fetch_user_info(self) -> Optional[int]:
         async with self.get("users.roblox.com/v1/users/authenticated") as response:
             data = await response.json()
-
             if (
                 response.status != 200
                 or data.get("errors")
@@ -100,7 +99,6 @@ class Auth(ClientSession):
 
             def wrapper(instance, *args, **kwargs):
                 attr = getattr(instance, attr_name, None)
-                print(attr)
 
                 if not isinstance(attr, cls):
                     return None

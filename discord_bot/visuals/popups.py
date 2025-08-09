@@ -29,4 +29,4 @@ class SetPricePopup(Modal, title="New Price Set"):
         if self.new_price.value.isdigit() and int(self.new_price.value) > 0:
             self.view.seller.current.price_to_sell = int(self.new_price.value)
 
-        await self.view.update_service_message(self.view.make_embed())
+        await self.view.update_message(self.view.make_embed())

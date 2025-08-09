@@ -6,7 +6,7 @@
 {
     "Cookie": "", Your roblox cookie from where all the items will sell (instruction below)
     "Discord_Bot": {
-        "Enabled": false, If you have this enabled, you will get more features to this tool
+        "Enabled": false, if enabled, the bot will be included, providing other external feautres
         "Token": "", Paste here an auth token of your discord appliction (instruction below)
         "Prefix": "!", You can set your prefix to the commands, but this tool also supports slash commands
         "Owner_IDs": [] Paste a user IDs of people who can have a presmission to the commands (empty for everyone)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from discord.ui import View, button, Button
 from datetime import datetime
+import functools
 import discord
 import asyncio
 
@@ -22,24 +23,42 @@ class BaseView(View):
         self.channel = channel
 
         self.client_message = ctx
-        self.service_message = None
+        self.message = None
 
     def switch_buttons_disabling(self, disabled: Optional[bool] = None):
         for children in self.children:
             if isinstance(children, Button):
                 children.disabled = (not children.disabled) if disabled is None else disabled
 
-    async def update_service_message(self, embed: discord.Embed):
-        await self.service_message.edit(embed=embed, view=self, content=self.client_message.author.mention)
+    async def update_message(self, embed: discord.Embed):
+        await self.message.edit(embed=embed, view=self, content=self.client_message.author.mention)
 
 
 class ControlPanel(BaseView):
     async def start(self):
-        self.service_message = await self.channel.send(embed=self.make_embed(),
-                                                       view=self,
-                                                       content=self.client_message.author.mention)
+        self.message = await self.channel.send(embed=self.make_embed(),
+                                               view=self,
+                                               content=self.client_message.author.mention)
 
         self.seller.control_panel = self
+
+    @staticmethod
+    def _permission_check(func):
+        @functools.wraps(func)
+        async def wrapper(self: ControlPanel, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+            if interaction.user.id != self.client_message.author.id:
+                await interaction.response.defer(ephemeral=True)
+                return await interaction.followup.send(
+                    ephemeral=True,
+                    embed=custom_embed(
+                        "No Permission",
+                        "You are not allowed to interact with buttons!"
+                    )
+                )
+
+            return await func(self, interaction, button)
+
+        return wrapper
 
     def make_embed(self) -> discord.Embed:
         item = self.seller.current
@@ -71,14 +90,10 @@ class ControlPanel(BaseView):
         return embed
 
     @button(label="sell", style=discord.ButtonStyle.green, emoji="💲", row=2)
+    @_permission_check
     async def sell_button(self, interaction: discord.Interaction, _: discord.ui.Button):
-        if interaction.user.id == self.client_message.author.id:
-            return await interaction.followup.send(embed=custom_embed("No Permission",
-                                                                      "You are not allowed to interact with buttons!"),
-                                                   ephemeral=True)
-
         self.switch_buttons_disabling(True)
-        await self.update_service_message(embed=loading_embed(f"Selling {len(self.seller.current.collectibles):,} Items"))
+        await self.update_message(embed=loading_embed(f"Selling {len(self.seller.current.collectibles):,} Items"))
         await interaction.response.defer(ephemeral=True)
         
         if not self.seller.selling:
@@ -86,7 +101,7 @@ class ControlPanel(BaseView):
                 sold_amount = await self.seller.current.sell_collectibles(
                     skip_on_sale=self.seller.skip_on_sale,
                     skip_if_cheapest=self.seller.skip_if_cheapest,
-                    log=False
+                    verbose=False
                 )
 
                 if sold_amount is None:
@@ -105,51 +120,39 @@ class ControlPanel(BaseView):
                 
                 if self.seller.done:
                     self.switch_buttons_disabling(False)
-                    return await self.update_service_message(
+                    return await self.update_message(
                         embed=custom_embed("Done", f"Successfully sold {self.seller.total_sold} limiteds"))
         
         self.switch_buttons_disabling(False)
-        return await self.update_service_message(self.make_embed())
+        return await self.update_message(self.make_embed())
 
     @button(label="set price", style=discord.ButtonStyle.gray, emoji="✏️", row=1)
+    @_permission_check
     async def set_price_button(self, interaction: discord.Interaction, _: discord.ui.Button):
-        if interaction.user.id != self.client_message.author.id:
-            return await interaction.followup.send(
-                embed=custom_embed("No Permission", "You are not allowed to interact with buttons!"),
-                ephemeral=True)
-
         await interaction.response.send_modal(SetPricePopup(self))
 
     @button(label="blacklist", style=discord.ButtonStyle.gray, emoji="📃", row=1)
-    async def next_button(self, interaction: discord.Interaction, _: discord.ui.Button):
-        if interaction.user.id != self.client_message.author.id:
-            return await interaction.followup.send(
-                embed=custom_embed("No Permission", "You are not allowed to interact with buttons!"),
-                ephemeral=True)
-
+    @_permission_check
+    async def next_button(self, interaction: discord.Interaction, _):
         self.seller.blacklist.add(self.seller.current.id)
         self.seller.next_item()
         
-        await self.update_service_message(self.make_embed())
+        await self.update_message(self.make_embed())
         await interaction.response.defer(ephemeral=True)
     
     @button(label="stop", style=discord.ButtonStyle.danger, emoji="⛔", row=2)
-    async def stop_button(self, interaction: discord.Interaction, _: discord.ui.Button):
-        if interaction.user.id != self.client_message.author.id:
-            return await interaction.followup.send("You are not allowed to interact with buttons!",
-                                                   ephemeral=True)
-
-        await self.service_message.delete()
+    @_permission_check
+    async def stop_button(self, *_):
+        await self.message.delete()
         self.seller.control_panel = None
+        return None
 
     @button(label="skip", style=discord.ButtonStyle.blurple, emoji="➡️", row=2)
-    async def skip_button(self, interaction: discord.Interaction, _: discord.ui.Button):
-        if interaction.user.id != self.client_message.author.id:
-            return await interaction.followup.send("You are not allowed to interact with buttons!",
-                                                   ephemeral=True)
-
+    @_permission_check
+    async def skip_button(self, interaction: discord.Interaction, _):
         self.seller.seen.add(self.seller.current.id)
         self.seller.next_item()
 
-        await self.update_service_message(self.make_embed())
+        await self.update_message(self.make_embed())
         await interaction.response.defer(ephemeral=True)
+        return None

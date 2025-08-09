@@ -93,7 +93,6 @@ class BuyChecker:
 
             yield sale
 
-
     async def _fetch_new_sales(self) -> AsyncGenerator[tuple[Transaction, Collectible]]:
         async for sale in self._fetch_existing_sales():
             item = self._seller.get_item(sale.item_id)

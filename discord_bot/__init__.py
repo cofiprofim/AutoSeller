@@ -39,7 +39,7 @@ async def start(self: AutoSeller) -> None:
             return await ctx.reply(content=f"You can not run this command when you have auto sell enabled")
         elif self.control_panel is not None:
             return await ctx.reply(content=f"You already have one control panel running! "
-                                           f"({self.control_panel.service_message.jump_url})")
+                                           f"({self.control_panel.message.jump_url})")
 
         await ControlPanel(self, channel, ctx).start()
         return await ctx.reply(f"Successfully created a control panel {self.control_panel.service_message.jump_url}")
